@@ -279,6 +279,42 @@ def cmd_interactive() -> None:
         print("Invalid selection.")
 
 
+def cmd_batch(args: argparse.Namespace) -> int:
+    import csv
+    with open(args.input, mode="r", encoding="utf-8-sig") as f:
+        reader = csv.DictReader(f)
+        fieldnames = list(reader.fieldnames or [])
+        rows = list(reader)
+
+    out_fields = fieldnames + ["developability_score", "developability_tier", "isoelectric_point", "humanness_pct"]
+    out_rows = []
+    for r in rows:
+        row_dict = dict(r)
+        ab_id = r.get("antibody_id") or "mAb"
+        vh = r.get("vh_sequence") or r.get("vh") or ""
+        vl = r.get("vl_sequence") or r.get("vl") or ""
+        if vh and vl:
+            rep = acap.generate_developability_report(ab_id, vh, vl)
+            row_dict["developability_score"] = rep.composite_developability_score
+            row_dict["developability_tier"] = rep.developability_tier
+            row_dict["isoelectric_point"] = rep.isoelectric_point
+            row_dict["humanness_pct"] = rep.overall_humanness
+        else:
+            row_dict["developability_score"] = 0
+            row_dict["developability_tier"] = "INVALID"
+            row_dict["isoelectric_point"] = 0.0
+            row_dict["humanness_pct"] = 0.0
+        out_rows.append(row_dict)
+
+    with open(args.output, mode="w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=out_fields)
+        writer.writeheader()
+        writer.writerows(out_rows)
+
+    print(f"Processed {len(out_rows)} antibodies -> {args.output}")
+    return 0
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         prog="antibody-cdr-antigen-paratope",
@@ -314,6 +350,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_dev.add_argument("--cdrs", help="Optional JSON dict of CDR sequences")
     p_dev.add_argument("--json", action="store_true", help="Output machine-readable JSON")
 
+    # batch
+    p_batch = subparsers.add_parser("batch", help="Batch process antibody sequences from CSV")
+    p_batch.add_argument("--input", "-i", required=True, help="Input CSV path")
+    p_batch.add_argument("--output", "-o", default="results.csv", help="Output CSV path")
+
     # interactive
     subparsers.add_parser("interactive", help="Interactive command line walkthrough")
 
@@ -327,6 +368,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         cmd_cdrh3(args)
     elif args.command == "developability":
         cmd_developability(args)
+    elif args.command == "batch":
+        return cmd_batch(args)
     elif args.command == "interactive":
         cmd_interactive()
     else:
@@ -338,3 +381,4 @@ def main(argv: Optional[List[str]] = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
